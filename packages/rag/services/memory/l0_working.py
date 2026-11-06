@@ -200,46 +200,6 @@ async def remove_turns(session_id: str, turn_ids: List[str]):
     await pipe.execute()
 
 
-async def delete_message(
-    session_id: str, turn_id: str, role: Optional[str] = None,
-) -> int:
-    """删除 L0 中某 turn 的指定消息。
-    role=None 删该 turn 全部消息；role="user" 只删 user 那条。
-    必须用 zrange 拿回的原始字符串 ZREM（字节级匹配）。
-    """
-    redis = get_redis()
-    key = _turns_key(session_id)
-    raw = await redis.zrange(key, 0, -1)
-    to_remove = []
-    for r in raw:                       # r 是原始字符串，直接拿去 ZREM
-        try:
-            m = json.loads(r)
-        except Exception:
-            logger.exception(
-                "delete_message: 跳过无法解析的 ZSET 元素, session_id=%s, turn_id=%s, raw=%r",
-                session_id, turn_id, r,
-                exc_info=True,  # 带上异常堆栈，方便定位
-            )
-            continue
-        if m.get("turn_id") != turn_id:
-            continue
-        if role is not None and m.get("role") != role:
-            continue
-        to_remove.append(r)
-    if not to_remove:
-        return 0
-    await redis.zrem(key, *to_remove)
-    # 若整轮删光了，顺手清 status
-    if role is None:
-        await redis.hdel(_status_key(session_id), turn_id)
-    return len(to_remove)
-
-
-async def delete_turn(session_id: str, turn_id: str) -> int:
-    """删整轮（语义更清晰，内部调 delete_message）"""
-    return await delete_message(session_id, turn_id, role=None)
-
-
 async def clear_session(session_id: str) -> None:
     """清空整个会话的 L0"""
     redis = get_redis()
